@@ -84,6 +84,10 @@ globset = "0.4.16"
 hex = "0.4.3"
 htmlescape = "0.3.1"
 hyper = "1"
+icu_collator = { version = "1.5.0", features = ["compiled_data"] }
+icu_locid = "1.5.0"
+# Enable Send + Sync ICU data handles for rusqlite's collation callback.
+icu_provider = { version = "1.5.0", features = ["sync"] }
 id_tree = "1.8.0"
 inflections = "1.1.1"
 intl-memoizer = "0.5.3"
@@ -140,6 +144,7 @@ unic-langid = { version = "0.9.6", features = ["macros"] }
 unic-ucd-category = "0.9.0"
 unicode-normalization = "0.1.24"
 walkdir = "2.5.0"
+whatlang = "0.16.4"
 which = "8.0.0"
 widestring = "1.1.0"
 winapi = { version = "0.3", features = ["wincon", "winreg"] }

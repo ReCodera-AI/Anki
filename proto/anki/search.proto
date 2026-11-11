@@ -113,6 +113,8 @@ message SearchNode {
 message SearchRequest {
   string search = 1;
   SortOrder order = 2;
+  // Locale used for locale-aware Sort Field ordering in the browser.
+  string sort_locale = 3;
 }
 
 message SearchResponse {

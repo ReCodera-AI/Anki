@@ -312,3 +312,53 @@ def test_findDupes():
     assert not r
     # front isn't dupe
     assert col.find_dupes("Front") == []
+
+
+def test_find_sort_field_uses_russian_collation_for_cards_and_notes():
+    col = getEmptyCol()
+    values = ["я", "ё", "ж", "е", "а"]
+    for value in values:
+        note = col.newNote()
+        note["Front"] = value
+        note["Back"] = "back"
+        col.addNote(note)
+
+    sort_field = col.get_browser_column("noteFld")
+    assert sort_field is not None
+    expected = ["а", "е", "ё", "ж", "я"]
+
+    card_ids = col.find_cards("", sort_field, sort_locale="ru")
+    assert [col.get_card(cid).note()["Front"] for cid in card_ids] == expected
+    reverse_card_ids = col.find_cards("", sort_field, reverse=True, sort_locale="ru")
+    assert [col.get_card(cid).note()["Front"] for cid in reverse_card_ids] == list(
+        reversed(expected)
+    )
+
+    note_ids = col.find_notes("", sort_field, sort_locale="ru")
+    assert [col.get_note(nid)["Front"] for nid in note_ids] == expected
+    reverse_note_ids = col.find_notes("", sort_field, reverse=True, sort_locale="ru")
+    assert [col.get_note(nid)["Front"] for nid in reverse_note_ids] == list(
+        reversed(expected)
+    )
+
+
+def test_find_sort_field_detects_russian_language_and_uses_it():
+    col = getEmptyCol()
+    suffix = "это обычное русское слово"
+    values = [f"я {suffix}", f"ё {suffix}", f"ж {suffix}", f"е {suffix}", f"а {suffix}"]
+    for value in values:
+        note = col.newNote()
+        note["Front"] = value
+        note["Back"] = "back"
+        col.addNote(note)
+
+    sort_field = col.get_browser_column("noteFld")
+    assert sort_field is not None
+    note_ids = col.find_notes("", sort_field, sort_locale="en")
+    assert [col.get_note(nid)["Front"].split()[0] for nid in note_ids] == [
+        "а",
+        "е",
+        "ё",
+        "ж",
+        "я",
+    ]

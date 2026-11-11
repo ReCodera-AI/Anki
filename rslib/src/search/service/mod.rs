@@ -32,7 +32,10 @@ impl crate::services::SearchService for Collection {
         &mut self,
         input: anki_proto::search::SearchRequest,
     ) -> Result<anki_proto::search::SearchResponse> {
-        let order = input.order.unwrap_or_default().value.into();
+        let order = SortMode::with_locale(
+            input.order.unwrap_or_default().value.into(),
+            input.sort_locale,
+        );
         let cids = self.search_cards(&input.search, order)?;
         Ok(anki_proto::search::SearchResponse {
             ids: cids.into_iter().map(|v| v.0).collect(),
@@ -43,7 +46,10 @@ impl crate::services::SearchService for Collection {
         &mut self,
         input: anki_proto::search::SearchRequest,
     ) -> Result<anki_proto::search::SearchResponse> {
-        let order = input.order.unwrap_or_default().value.into();
+        let order = SortMode::with_locale(
+            input.order.unwrap_or_default().value.into(),
+            input.sort_locale,
+        );
         let nids = self.search_notes(&input.search, order)?;
         Ok(anki_proto::search::SearchResponse {
             ids: nids.into_iter().map(|v| v.0).collect(),
@@ -205,6 +211,7 @@ mod tests {
         let input = anki_proto::search::SearchRequest {
             search: "".to_string(),
             order: None,
+            sort_locale: String::new(),
         };
         let result = SearchService::search_cards(&mut col, input).unwrap();
         assert!(!result.ids.is_empty(), "expected at least one card id");
@@ -217,6 +224,7 @@ mod tests {
         let input = anki_proto::search::SearchRequest {
             search: "".to_string(),
             order: None,
+            sort_locale: String::new(),
         };
         let result = SearchService::search_notes(&mut col, input).unwrap();
         assert!(!result.ids.is_empty(), "expected at least one note id");
@@ -333,6 +341,7 @@ mod tests {
             anki_proto::search::SearchRequest {
                 search: "".to_string(),
                 order: None,
+                sort_locale: String::new(),
             },
         )
         .unwrap();
@@ -359,6 +368,7 @@ mod tests {
             anki_proto::search::SearchRequest {
                 search: "note:Basic".to_string(),
                 order: None,
+                sort_locale: String::new(),
             },
         )
         .unwrap();
@@ -392,6 +402,7 @@ mod tests {
             anki_proto::search::SearchRequest {
                 search: "deck:TargetDeck".to_string(),
                 order: None,
+                sort_locale: String::new(),
             },
         )
         .unwrap();
@@ -426,6 +437,7 @@ mod tests {
             anki_proto::search::SearchRequest {
                 search: "tag:target".to_string(),
                 order: None,
+                sort_locale: String::new(),
             },
         )
         .unwrap();

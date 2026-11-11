@@ -646,6 +646,7 @@ class Collection(DeprecatedNamesMixin):
         query: str,
         order: bool | str | BrowserColumns.Column = False,
         reverse: bool = False,
+        sort_locale: str = "",
     ) -> Sequence[CardId]:
         """Return card ids matching the provided search.
 
@@ -670,7 +671,10 @@ class Collection(DeprecatedNamesMixin):
         """
         mode = self._build_sort_mode(order, reverse, False)
         return cast(
-            Sequence[CardId], self._backend.search_cards(search=query, order=mode)
+            Sequence[CardId],
+            self._backend.search_cards(
+                search=query, order=mode, sort_locale=sort_locale.replace("_", "-")
+            ),
         )
 
     def find_notes(
@@ -678,6 +682,7 @@ class Collection(DeprecatedNamesMixin):
         query: str,
         order: bool | str | BrowserColumns.Column = False,
         reverse: bool = False,
+        sort_locale: str = "",
     ) -> Sequence[NoteId]:
         """Return note ids matching the provided search.
 
@@ -686,7 +691,10 @@ class Collection(DeprecatedNamesMixin):
         """
         mode = self._build_sort_mode(order, reverse, True)
         return cast(
-            Sequence[NoteId], self._backend.search_notes(search=query, order=mode)
+            Sequence[NoteId],
+            self._backend.search_notes(
+                search=query, order=mode, sort_locale=sort_locale.replace("_", "-")
+            ),
         )
 
     def _build_sort_mode(

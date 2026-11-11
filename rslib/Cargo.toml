@@ -73,6 +73,9 @@ futures.workspace = true
 hex.workspace = true
 htmlescape.workspace = true
 hyper.workspace = true
+icu_collator.workspace = true
+icu_locid.workspace = true
+icu_provider.workspace = true
 id_tree.workspace = true
 itertools.workspace = true
 nom.workspace = true
@@ -113,6 +116,7 @@ tracing-subscriber.workspace = true
 unic-ucd-category.workspace = true
 unicase.workspace = true
 unicode-normalization.workspace = true
+whatlang.workspace = true
 zip.workspace = true
 zstd.workspace = true
 

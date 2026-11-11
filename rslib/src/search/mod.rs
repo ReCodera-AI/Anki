@@ -40,8 +40,32 @@ pub enum ReturnItemType {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum SortMode {
     NoOrder,
-    Builtin { column: Column, reverse: bool },
+    Builtin {
+        column: Column,
+        reverse: bool,
+    },
+    LocaleBuiltin {
+        column: Column,
+        reverse: bool,
+        locale: String,
+    },
     Custom(String),
+}
+
+impl SortMode {
+    pub(crate) fn with_locale(mode: Self, locale: String) -> Self {
+        match mode {
+            SortMode::Builtin {
+                column: Column::SortField,
+                reverse,
+            } if !locale.is_empty() => SortMode::LocaleBuiltin {
+                column: Column::SortField,
+                reverse,
+                locale,
+            },
+            other => other,
+        }
+    }
 }
 
 pub trait AsReturnItemType {
@@ -74,6 +98,7 @@ impl SortMode {
         match self {
             SortMode::NoOrder => RequiredTable::CardsOrNotes,
             SortMode::Builtin { column, .. } => column.required_table(),
+            SortMode::LocaleBuiltin { column, .. } => column.required_table(),
             SortMode::Custom(ref text) => {
                 if text.contains("n.") {
                     if text.contains("c.") {
@@ -188,6 +213,7 @@ impl Collection {
         let writer = SqlWriter::new(self, item_type);
 
         let (mut sql, args) = writer.build_query(&top_node, mode.required_table())?;
+        let mode = self.resolve_locale_sort_mode(mode, &sql, &args)?;
         self.add_order(&mut sql, item_type, mode)?;
 
         let mut stmt = self.storage.db.prepare(&sql)?;
@@ -209,7 +235,14 @@ impl Collection {
             SortMode::Builtin { column, reverse } => {
                 prepare_sort(self, column, item_type)?;
                 sql.push_str(" order by ");
-                write_order(sql, item_type, column, reverse, self.timing_today()?)?;
+                write_order(sql, item_type, column, reverse, self.timing_today()?, false)?;
+            }
+            SortMode::LocaleBuiltin {
+                column, reverse, ..
+            } => {
+                prepare_sort(self, column, item_type)?;
+                sql.push_str(" order by ");
+                write_order(sql, item_type, column, reverse, self.timing_today()?, true)?;
             }
             SortMode::Custom(order_clause) => {
                 sql.push_str(" order by ");
@@ -217,6 +250,30 @@ impl Collection {
             }
         }
         Ok(())
+    }
+
+    fn resolve_locale_sort_mode(
+        &self,
+        mode: SortMode,
+        query: &str,
+        args: &[String],
+    ) -> Result<SortMode> {
+        match mode {
+            SortMode::LocaleBuiltin {
+                column,
+                reverse,
+                locale,
+            } => {
+                let locale = detect_sort_locale(&self.storage.db, query, args).unwrap_or(locale);
+                self.storage.register_sort_collation(&locale)?;
+                Ok(SortMode::LocaleBuiltin {
+                    column,
+                    reverse,
+                    locale,
+                })
+            }
+            other => Ok(other),
+        }
     }
 
     /// Place the matched card ids into a temporary 'search_cids' table
@@ -233,6 +290,7 @@ impl Collection {
         let want_order = mode != SortMode::NoOrder;
 
         let (mut sql, args) = writer.build_query(&top_node, mode.required_table())?;
+        let mode = self.resolve_locale_sort_mode(mode, &sql, &args)?;
         self.add_order(&mut sql, ReturnItemType::Cards, mode)?;
 
         if want_order {
@@ -328,6 +386,167 @@ impl Collection {
     }
 }
 
+fn detect_sort_locale(db: &rusqlite::Connection, query: &str, args: &[String]) -> Option<String> {
+    const MAX_SAMPLE_BYTES: usize = 65_536;
+
+    let sample_query = query
+        .replacen(
+            "select c.id from",
+            "select distinct substr(cast(n.sfld as text), 1, 4096) as sample_field, n.id as sample_note_id from",
+            1,
+        )
+        .replacen(
+            "select distinct n.id from",
+            "select distinct substr(cast(n.sfld as text), 1, 4096) as sample_field, n.id as sample_note_id from",
+            1,
+        )
+        .replacen(
+            "select n.id from notes n where",
+            "select substr(cast(n.sfld as text), 1, 4096) as sample_field, n.id as sample_note_id from notes n where",
+            1,
+        );
+    if sample_query == query {
+        return None;
+    }
+
+    let sample_query = format!(
+        r#"
+        select sample_field
+        from (
+            select sample_field,
+                   row_number() over (order by sample_note_id) as sample_row,
+                   count(*) over () as sample_count
+            from ({sample_query}) as locale_values
+        )
+        where (sample_row - 1) % max(1, (sample_count + 127) / 128) = 0
+        order by sample_row
+        "#
+    );
+    let mut statement = db.prepare(&sample_query).ok()?;
+    let values = statement
+        .query_map(params_from_iter(args.iter()), |row| row.get::<_, String>(0))
+        .ok()?;
+
+    let mut sample = String::new();
+    let mut common_language = None;
+    for value in values {
+        let value = value.ok()?;
+        if value.trim().is_empty() {
+            continue;
+        }
+
+        let detected = whatlang::detect(&value)?;
+        if !detected.is_reliable() {
+            return None;
+        }
+        let code = detected.lang().code();
+        if common_language.is_some_and(|existing| existing != code) {
+            return None;
+        }
+        common_language = Some(code);
+
+        if sample.len() >= MAX_SAMPLE_BYTES {
+            continue;
+        }
+        if !sample.is_empty() {
+            sample.push(' ');
+        }
+        for character in value.chars() {
+            if sample.len() + character.len_utf8() > MAX_SAMPLE_BYTES {
+                break;
+            }
+            sample.push(character);
+        }
+    }
+
+    let detected = whatlang::detect(&sample)?;
+    if !detected.is_reliable()
+        || common_language.is_some_and(|existing| existing != detected.lang().code())
+    {
+        return None;
+    }
+    language_code_to_locale(detected.lang().code())
+}
+
+fn language_code_to_locale(code: &str) -> Option<String> {
+    Some(
+        match code {
+            "afr" => "af",
+            "aka" => "ak",
+            "amh" => "am",
+            "ara" => "ar",
+            "aze" => "az",
+            "bel" => "be",
+            "ben" => "bn",
+            "bul" => "bg",
+            "cat" => "ca",
+            "ces" => "cs",
+            "cmn" => "zh",
+            "cym" => "cy",
+            "dan" => "da",
+            "deu" => "de",
+            "ell" => "el",
+            "eng" => "en",
+            "epo" => "eo",
+            "est" => "et",
+            "fin" => "fi",
+            "fra" => "fr",
+            "guj" => "gu",
+            "heb" => "he",
+            "hin" => "hi",
+            "hrv" => "hr",
+            "hun" => "hu",
+            "hye" => "hy",
+            "ind" => "id",
+            "ita" => "it",
+            "jav" => "jv",
+            "jpn" => "ja",
+            "kan" => "kn",
+            "kat" => "ka",
+            "khm" => "km",
+            "kor" => "ko",
+            "lat" => "la",
+            "lav" => "lv",
+            "lit" => "lt",
+            "mal" => "ml",
+            "mar" => "mr",
+            "mkd" => "mk",
+            "mya" => "my",
+            "nep" => "ne",
+            "nld" => "nl",
+            "nob" => "nb",
+            "ori" => "or",
+            "pan" => "pa",
+            "pes" => "fa",
+            "pol" => "pl",
+            "por" => "pt",
+            "ron" => "ro",
+            "rus" => "ru",
+            "sin" => "si",
+            "slk" => "sk",
+            "slv" => "sl",
+            "sna" => "sn",
+            "spa" => "es",
+            "srp" => "sr",
+            "swe" => "sv",
+            "tam" => "ta",
+            "tel" => "te",
+            "tgl" => "tl",
+            "tha" => "th",
+            "tuk" => "tk",
+            "tur" => "tr",
+            "ukr" => "uk",
+            "urd" => "ur",
+            "uzb" => "uz",
+            "vie" => "vi",
+            "yid" => "yi",
+            "zul" => "zu",
+            _ => return None,
+        }
+        .to_string(),
+    )
+}
+
 /// Add the order clause to the sql.
 fn write_order(
     sql: &mut String,
@@ -335,10 +554,11 @@ fn write_order(
     column: Column,
     reverse: bool,
     timing: SchedTimingToday,
+    locale_aware: bool,
 ) -> Result<()> {
     let order = match item_type {
-        ReturnItemType::Cards => card_order_from_sort_column(column, timing),
-        ReturnItemType::Notes => note_order_from_sort_column(column),
+        ReturnItemType::Cards => card_order_from_sort_column(column, timing, locale_aware),
+        ReturnItemType::Notes => note_order_from_sort_column(column, locale_aware),
     };
     require!(!order.is_empty(), "Can't sort {item_type:?} by {column:?}.");
     if reverse {
@@ -354,7 +574,11 @@ fn write_order(
     Ok(())
 }
 
-fn card_order_from_sort_column(column: Column, timing: SchedTimingToday) -> Cow<'static, str> {
+fn card_order_from_sort_column(
+    column: Column,
+    timing: SchedTimingToday,
+    locale_aware: bool,
+) -> Cow<'static, str> {
     match column {
         Column::CardMod => "c.mod asc".into(),
         Column::Cards => concat!(
@@ -373,6 +597,9 @@ fn card_order_from_sort_column(column: Column, timing: SchedTimingToday) -> Cow<
         Column::Notetype => "(select pos from sort_order where ntid = n.mid) asc".into(),
         Column::OriginalPosition => "(select pos from sort_order where nid = c.nid) asc".into(),
         Column::Reps => "c.reps asc".into(),
+        Column::SortField if locale_aware => {
+            "n.sfld collate anki_locale asc, c.ord asc, n.id asc".into()
+        }
         Column::SortField => "n.sfld collate nocase asc, c.ord asc".into(),
         Column::Tags => "n.tags asc".into(),
         Column::Answer | Column::Custom | Column::Question => "".into(),
@@ -388,7 +615,7 @@ fn card_order_from_sort_column(column: Column, timing: SchedTimingToday) -> Cow<
     }
 }
 
-fn note_order_from_sort_column(column: Column) -> Cow<'static, str> {
+fn note_order_from_sort_column(column: Column, locale_aware: bool) -> Cow<'static, str> {
     match column {
         Column::CardMod
         | Column::Cards
@@ -402,6 +629,7 @@ fn note_order_from_sort_column(column: Column) -> Cow<'static, str> {
         Column::NoteCreation => "n.id asc".into(),
         Column::NoteMod => "n.mod asc".into(),
         Column::Notetype => "(select pos from sort_order where ntid = n.mid) asc".into(),
+        Column::SortField if locale_aware => "n.sfld collate anki_locale asc, n.id asc".into(),
         Column::SortField => "n.sfld collate nocase asc".into(),
         Column::Tags => "n.tags asc".into(),
         Column::Answer
@@ -468,11 +696,11 @@ mod test {
         let timing = SchedTimingToday::zero();
         for column in Column::iter() {
             assert_eq!(
-                card_order_from_sort_column(column, timing).is_empty(),
+                card_order_from_sort_column(column, timing, false).is_empty(),
                 matches!(column.default_cards_order(), Sorting::None)
             );
             assert_eq!(
-                note_order_from_sort_column(column).is_empty(),
+                note_order_from_sort_column(column, false).is_empty(),
                 matches!(column.default_notes_order(), Sorting::None)
             );
         }
@@ -514,5 +742,110 @@ mod test {
         assert_eq!(matching_frequencies("Frequency>600")?, ["1500"]);
 
         Ok(())
+    }
+
+    #[test]
+    fn language_codes_map_to_collation_locales() {
+        assert_eq!(language_code_to_locale("rus").as_deref(), Some("ru"));
+        assert_eq!(language_code_to_locale("deu").as_deref(), Some("de"));
+        assert_eq!(language_code_to_locale("unknown"), None);
+    }
+
+    fn sort_test_values(col: &Collection) -> Vec<String> {
+        let mut statement = col
+            .storage
+            .db
+            .prepare("select value from sort_test order by value collate anki_locale")
+            .unwrap();
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn locale_collation_uses_russian_alphabet_order() {
+        let col = Collection::new();
+        col.storage.register_sort_collation("ru").unwrap();
+        col.storage
+            .db
+            .execute_batch(
+                "create temp table sort_test(value text);
+                 insert into sort_test values
+                 ('я'), ('ю'), ('э'), ('ь'), ('ы'), ('ъ'), ('щ'), ('ш'),
+                 ('ч'), ('ц'), ('х'), ('ф'), ('у'), ('т'), ('с'), ('р'),
+                 ('п'), ('о'), ('н'), ('м'), ('л'), ('к'), ('й'), ('и'),
+                 ('з'), ('ж'), ('ё'), ('е'), ('д'), ('г'), ('в'), ('б'), ('а');",
+            )
+            .unwrap();
+
+        assert_eq!(
+            sort_test_values(&col),
+            [
+                "а", "б", "в", "г", "д", "е", "ё", "ж", "з", "и", "й", "к", "л", "м", "н", "о",
+                "п", "р", "с", "т", "у", "ф", "х", "ц", "ч", "ш", "щ", "ъ", "ы", "ь", "э", "ю",
+                "я",
+            ]
+            .map(|value| value.to_string())
+            .to_vec()
+        );
+    }
+
+    #[test]
+    fn locale_collation_respects_locale_specific_letter_order() {
+        let col = Collection::new();
+        col.storage.register_sort_collation("de").unwrap();
+        col.storage
+            .db
+            .execute_batch(
+                "create temp table sort_test(value text);
+                 insert into sort_test values ('z'), ('ä');",
+            )
+            .unwrap();
+
+        assert_eq!(
+            sort_test_values(&col),
+            vec!["ä".to_string(), "z".to_string()]
+        );
+
+        col.storage.register_sort_collation("sv").unwrap();
+        assert_eq!(
+            sort_test_values(&col),
+            vec!["z".to_string(), "ä".to_string()]
+        );
+    }
+
+    #[test]
+    fn locale_collation_preserves_numeric_storage_order() {
+        let col = Collection::new();
+        col.storage.register_sort_collation("ru").unwrap();
+        col.storage
+            .db
+            .execute_batch(
+                "create temp table sort_test(value integer);
+                 insert into sort_test values ('10'), ('2'), ('text');",
+            )
+            .unwrap();
+
+        let mut statement = col
+            .storage
+            .db
+            .prepare("select value from sort_test order by value collate anki_locale")
+            .unwrap();
+        let sorted = statement
+            .query_map([], |row| row.get::<_, rusqlite::types::Value>(0))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(
+            sorted,
+            vec![
+                rusqlite::types::Value::Integer(2),
+                rusqlite::types::Value::Integer(10),
+                rusqlite::types::Value::Text("text".to_string()),
+            ]
+        );
     }
 }

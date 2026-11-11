@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod, abstractproperty
 from collections.abc import Sequence
 from typing import cast
 
+import anki.lang
 from anki.browser import BrowserConfig
 from anki.cards import Card, CardId
 from anki.collection import Collection
@@ -156,7 +157,7 @@ class CardState(ItemState):
     def find_items(
         self, search: str, order: bool | str | Column, reverse: bool
     ) -> Sequence[ItemId]:
-        return self.col.find_cards(search, order, reverse)
+        return self.col.find_cards(search, order, reverse, anki.lang.current_lang)
 
     def get_item_from_card_id(self, card: CardId) -> ItemId:
         return card
@@ -205,7 +206,7 @@ class NoteState(ItemState):
     def find_items(
         self, search: str, order: bool | str | Column, reverse: bool
     ) -> Sequence[ItemId]:
-        return self.col.find_notes(search, order, reverse)
+        return self.col.find_notes(search, order, reverse, anki.lang.current_lang)
 
     def get_item_from_card_id(self, card: CardId) -> ItemId:
         return self.col.get_card(card).note().id

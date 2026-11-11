@@ -12,6 +12,11 @@ use std::sync::Arc;
 use bitflags::bitflags;
 use fnv::FnvHasher;
 use fsrs::FSRS5_DEFAULT_DECAY;
+use icu_collator::Collator;
+use icu_collator::CollatorOptions;
+use icu_collator::Strength;
+use icu_locid::Locale;
+use icu_provider as _; // Enable Send + Sync for the collator SQLite callback.
 use regex::Regex;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::params;
@@ -36,6 +41,14 @@ use crate::text::CowMapping;
 
 fn unicase_compare(s1: &str, s2: &str) -> Ordering {
     UniCase::new(s1).cmp(&UniCase::new(s2))
+}
+
+fn sort_collator_options() -> CollatorOptions {
+    let mut options = CollatorOptions::default();
+    // Match Anki's previous case-insensitive Sort Field ordering while
+    // retaining locale-specific accent and alphabet distinctions.
+    options.strength = Some(Strength::Secondary);
+    options
 }
 
 // fixme: rollback savepoint when tags not changed
@@ -90,6 +103,28 @@ fn open_or_create_collection_db(path: &Path) -> Result<Connection> {
 }
 
 impl SqliteStorage {
+    pub(crate) fn register_sort_collation(&self, locale: &str) -> Result<()> {
+        let locale = locale
+            .replace('_', "-")
+            .parse::<Locale>()
+            .unwrap_or_else(|_| "und".parse().expect("root locale is valid"));
+        let collator = Collator::try_new(&locale.into(), sort_collator_options())
+            .or_else(|_| {
+                Collator::try_new(
+                    &"und".parse::<Locale>().unwrap().into(),
+                    sort_collator_options(),
+                )
+            })
+            .map_err(|err| AnkiError::ProtoError {
+                info: err.to_string(),
+            })?;
+        self.db
+            .create_collation("anki_locale", move |left, right| {
+                collator.compare(left, right)
+            })?;
+        Ok(())
+    }
+
     /// This is provided as an escape hatch for when you need to do something
     /// not directly supported by this library. Please exercise caution when
     /// using it.
