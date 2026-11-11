@@ -8,7 +8,7 @@ import json
 import math
 import re
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Literal
 
 from markdown import markdown
 
@@ -133,6 +133,7 @@ class Browser(QMainWindow):
         self.lastFilter = ""
         self.focusTo: int | None = None
         self._previewer: Previewer | None = None
+        self._preview_menu: QMenu | None = None
         self._card_info = BrowserCardInfo(self.mw)
         self._closeEventHasCleanedUp = False
         self.auto_layout = True
@@ -637,6 +638,8 @@ class Browser(QMainWindow):
         if self._closeEventHasCleanedUp:
             return
 
+        self._close_preview_menu()
+
         self.updateTitle()
         # if there is only one selected card, use it in the editor
         # it might differ from the current card
@@ -853,16 +856,79 @@ class Browser(QMainWindow):
     def onTogglePreview(self) -> None:
         assert self.editor is not None
 
-        if self._previewer:
+        if self._preview_menu:
+            self._close_preview_menu()
+        elif self._previewer:
             self._previewer.close()
         elif (
             isinstance(self.editor, aqt.editor.Editor)
             and self.editor.note
             or isinstance(self.editor, aqt.editor.NewEditor)
         ):
-            self._previewer = PreviewDialog(self, self.mw, self._on_preview_closed)
-            self._previewer.open()
-            self.toggle_preview_button_state(True)
+            if self.card and self.card.template().get("afmt", "").strip():
+                self._show_preview_menu(self.card.id)
+            else:
+                self._open_preview()
+
+    def _open_preview(self, side: Literal["question", "answer"] | None = None) -> None:
+        previewer = PreviewDialog(self, self.mw, self._on_preview_closed)
+        self._previewer = previewer
+        previewer.open(side)
+        self.toggle_preview_button_state(True)
+
+    def _close_preview_menu(self) -> None:
+        if menu := self._preview_menu:
+            self._preview_menu = None
+            menu.close()
+            menu.deleteLater()
+
+    def _show_preview_menu(self, card_id: CardId) -> None:
+        assert self.editor is not None
+        web = self.editor.web
+        assert web is not None
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay)
+        self._preview_menu = menu
+
+        def open_side(side: Literal["question", "answer"]) -> None:
+            if self.card and self.card.id == card_id:
+                self._open_preview(side)
+
+        qconnect(
+            menu.addAction(tr.card_templates_preview_front_page()).triggered,
+            lambda: open_side("question"),
+        )
+        qconnect(
+            menu.addAction(tr.card_templates_preview_back_page()).triggered,
+            lambda: open_side("answer"),
+        )
+
+        def clear_menu() -> None:
+            if self._preview_menu is menu:
+                self._preview_menu = None
+                menu.deleteLater()
+
+        qconnect(menu.aboutToHide, clear_menu)
+
+        def show_menu(position: Any) -> None:
+            if self._preview_menu is not menu:
+                return
+            if not self.card or self.card.id != card_id:
+                self._close_preview_menu()
+                return
+            if isinstance(position, dict):
+                zoom = web.zoomFactor()
+                point = QPoint(round(position["x"] * zoom), round(position["y"] * zoom))
+            else:
+                point = QPoint(0, 0)
+            menu.popup(web.mapToGlobal(point))
+
+        web.evalWithCallback(
+            "(() => { const b = document.getElementById('anki-browser-preview'); "
+            "if (!b) return null; const r = b.getBoundingClientRect(); "
+            "return {x: r.left, y: r.bottom}; })()",
+            show_menu,
+        )
 
     def _renderPreview(self) -> None:
         if self._previewer:
@@ -878,6 +944,7 @@ class Browser(QMainWindow):
             self.editor.web.eval(f"togglePreviewButtonState({json.dumps(active)});")
 
     def _cleanup_preview(self) -> None:
+        self._close_preview_menu()
         if self._previewer:
             self._previewer.cancel_timer()
             self._previewer.close()

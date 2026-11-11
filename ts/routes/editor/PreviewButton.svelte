@@ -29,6 +29,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 </script>
 
 <LabelButton
+    id="anki-browser-preview"
     tooltip={tr.browsingPreviewSelectedCard({ val: getPlatformString(keyCombination) })}
     active={$active}
     on:click={preview}

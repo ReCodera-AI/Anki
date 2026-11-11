@@ -54,6 +54,8 @@ class Previewer(QDialog):
         self._parent = parent
         self._close_callback = on_close
         self.mw = mw
+        self._initial_state: Literal["question", "answer"] = "question"
+        self._explicit_side_selection = False
         disable_help_button(self)
         setWindowIcon(self)
         gui_hooks.previewer_did_init(self)
@@ -65,7 +67,7 @@ class Previewer(QDialog):
         raise NotImplementedError
 
     def open(self) -> None:
-        self._state = "question"
+        self._state = self._initial_state
         self._last_state = None
         self._create_gui()
         self._setup_web_view()
@@ -111,6 +113,8 @@ class Previewer(QDialog):
         self._show_both_sides = self.mw.col.get_config_bool(
             Config.Bool.PREVIEW_BOTH_SIDES
         )
+        if self._explicit_side_selection:
+            self._show_both_sides = self._initial_state == "answer"
         both_sides_button.setChecked(self._show_both_sides)
         qconnect(both_sides_button.toggled, self._on_show_both_sides)
 
@@ -220,7 +224,7 @@ class Previewer(QDialog):
         else:
             if self._show_both_sides:
                 self._state = "answer"
-            elif self._card_changed:
+            elif self._card_changed and not self._explicit_side_selection:
                 self._state = "question"
 
             currentState = self._state_and_mod()
@@ -279,6 +283,7 @@ class Previewer(QDialog):
         assert self._web is not None
 
         self._show_both_sides = toggle
+        self._explicit_side_selection = False
         self.mw.col.set_config_bool(Config.Bool.PREVIEW_BOTH_SIDES, toggle)
 
         card = self.card()
@@ -342,7 +347,9 @@ class MultiCardPreviewer(Previewer):
         qconnect(self._next.clicked, self._on_next)
 
     def _on_prev(self) -> None:
-        if self._state == "answer" and not self._show_both_sides:
+        if self._explicit_side_selection:
+            self._on_prev_card()
+        elif self._state == "answer" and not self._show_both_sides:
             self._state = "question"
             self.render_card()
         else:
@@ -352,7 +359,9 @@ class MultiCardPreviewer(Previewer):
         pass
 
     def _on_next(self) -> None:
-        if self._state == "question":
+        if self._explicit_side_selection:
+            self._on_next_card()
+        elif self._state == "question":
             self._state = "answer"
             self.render_card()
         else:
@@ -392,6 +401,11 @@ class BrowserPreviewer(MultiCardPreviewer):
     ) -> None:
         super().__init__(parent=parent, mw=mw, on_close=on_close)
 
+    def open(self, side: Literal["question", "answer"] | None = None) -> None:
+        self._initial_state = side or "question"
+        self._explicit_side_selection = side is not None
+        super().open()
+
     def card(self) -> Card | None:
         assert self._parent is not None
 
@@ -422,11 +436,15 @@ class BrowserPreviewer(MultiCardPreviewer):
     def _should_enable_prev(self) -> bool:
         assert self._parent is not None
 
+        if self._explicit_side_selection:
+            return self._parent.has_previous_card()
         return super()._should_enable_prev() or self._parent.has_previous_card()
 
     def _should_enable_next(self) -> bool:
         assert self._parent is not None
 
+        if self._explicit_side_selection:
+            return self._parent.has_next_card()
         return super()._should_enable_next() or self._parent.has_next_card()
 
     def _render_scheduled(self) -> None:
