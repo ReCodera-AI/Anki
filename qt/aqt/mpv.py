@@ -37,6 +37,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from queue import Empty, Full, Queue
 from shutil import which
 
@@ -164,7 +165,9 @@ class MPVBase:
         --input-unix-socket option.
         """
         if is_win:
-            self._sock_filename = "ankimpv{}".format(os.getpid())
+            # Multiple players can coexist in one process; give each named
+            # pipe a unique suffix so their IPC channels cannot collide.
+            self._sock_filename = f"ankimpv{os.getpid()}-{uuid.uuid4().hex}"
             return
         fd, self._sock_filename = tempfile.mkstemp(prefix="mpv.")
         os.close(fd)
@@ -200,7 +203,9 @@ class MPVBase:
                     if err.args[0] == winerror.ERROR_FILE_NOT_FOUND:
                         pass
                     else:
-                        break
+                        raise MPVProcessError(
+                            f"unable to connect to mpv named pipe: {err}"
+                        ) from err
                 else:
                     break
             else:

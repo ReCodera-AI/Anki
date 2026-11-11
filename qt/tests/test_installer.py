@@ -212,6 +212,9 @@ def test_support_hash_args_python_mismatch(monkeypatch) -> None:
 def test_compile_fails_loudly(
     mocker, out_dir: Path, cmd_args: argparse.Namespace
 ) -> None:
+    # Exercise compile_sources() without invoking Briefcase or requiring a
+    # complete Windows SDK and package feeds.
+    mocker.patch("tools.build_installer.subprocess.check_call")
     mocker.patch("compileall.compile_dir", return_value=False)
     with pytest.raises(RuntimeError):
         build(cmd_args)
