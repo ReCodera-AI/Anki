@@ -1,7 +1,42 @@
 from tests.shared import getEmptyCol
 
 from anki.models import NotetypeId
-from aqt.browser.table.state import CardState, NoteState
+from aqt.browser.table.state import (
+    CardState,
+    NoteState,
+    browser_group_sort_locale,
+)
+
+
+def test_browser_group_locale_uses_only_unambiguous_manual_setting():
+    assert browser_group_sort_locale("fr", ["en", "sv"]) == "fr"
+    assert browser_group_sort_locale("", ["sv", "SV"]) == "sv"
+    assert browser_group_sort_locale("", ["en", "sv"]) == ""
+    assert browser_group_sort_locale("", []) == ""
+
+
+def test_browser_global_override_is_explicit_and_deck_setting_wins():
+    col = getEmptyCol()
+    deck_id = col.decks.add_normal_deck_with_name("Sort Field Scope").id
+    col.set_config(
+        f"_deck_{deck_id}_sortField", {"mode": "automatic", "locale": ""}
+    )
+    col.set_config("_browser_sortFieldMode", "browser")
+    state = NoteState(col)
+    sort_field = col.get_browser_column("noteFld")
+    other_column = col.get_browser_column("noteCrt")
+    assert sort_field is not None
+    assert other_column is not None
+
+    assert state._find_browser_sorted_items("", other_column, False) is None
+    assert state._find_browser_sorted_items("", sort_field, False) == []
+    assert (
+        state._find_browser_sorted_items(
+            'deck:"Sort Field Scope"', sort_field, False
+        )
+        is None
+    )
+    col.close()
 
 
 def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
@@ -69,6 +104,14 @@ def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
         "я",
     ]
     assert values == expected
+    assert state._find_browser_sorted_items("", order, False) is None
+    col.set_config("_browser_sortFieldMode", "browser")
+    global_ids = state.find_items("", order, False)
+    assert [col.get_note(nid)["Front"] for nid in global_ids] == expected
+    global_reverse_ids = state.find_items("", order, True)
+    assert [col.get_note(nid)["Front"] for nid in global_reverse_ids] == list(
+        reversed(expected)
+    )
     reverse_ids = state.find_items(search, order, True)
     assert [col.get_note(nid)["Front"] for nid in reverse_ids] == list(
         reversed(expected)

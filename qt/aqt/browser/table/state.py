@@ -18,11 +18,26 @@ from anki.utils import ids2str
 from aqt.browser.table import Column, ItemId, ItemList
 
 
+def browser_group_sort_locale(
+    notetype_locale: str, manual_locales: Sequence[str]
+) -> str:
+    """Prefer a Note Type locale, then a single unambiguous Deck locale."""
+    if notetype_locale:
+        return notetype_locale
+    locales: dict[str, str] = {}
+    for locale in manual_locales:
+        if locale:
+            normalized = locale.replace("_", "-")
+            locales.setdefault(normalized.casefold(), normalized)
+    return next(iter(locales.values())) if len(locales) == 1 else ""
+
+
 class ItemState(ABC):
     GEOMETRY_KEY_PREFIX: str
     SORT_COLUMN_KEY: str
     SORT_BACKWARDS_KEY: str
     _active_columns: list[str]
+    BROWSER_SORT_FIELD_MODE_KEY = "_browser_sortFieldMode"
 
     def __init__(self, col: Collection) -> None:
         self.col = col
@@ -98,8 +113,16 @@ class ItemState(ABC):
     ) -> Sequence[ItemId] | None:
         settings = self._sort_field_settings(search, order)
         if settings is None:
-            return None
-        mode, manual_locale = settings
+            if (
+                not isinstance(order, Column)
+                or order.key != "noteFld"
+                or self.col.get_config(self.BROWSER_SORT_FIELD_MODE_KEY)
+                != "browser"
+            ):
+                return None
+            mode, manual_locale = "browser", ""
+        else:
+            mode, manual_locale = settings
         fallback_locale = anki.lang.current_lang
         if mode == "manual" and manual_locale:
             return self._find_items_with_locale(
@@ -114,28 +137,41 @@ class ItemState(ABC):
         if not unordered:
             return []
         assert self.col.db is not None
-        if self.is_notes_mode():
-            rows = self.col.db.all(
-                f"select distinct mid from notes where id in {ids2str(unordered)}"
-            )
-        else:
-            rows = self.col.db.all(
-                f"select distinct n.mid from cards c join notes n on n.id=c.nid "
-                f"where c.id in {ids2str(unordered)}"
-            )
-        groups = {notetype_id for (notetype_id,) in rows}
+        matching_cards = (
+            self.col.find_cards(search, False, False, fallback_locale)
+            if self.is_notes_mode()
+            else unordered
+        )
+        if not matching_cards:
+            return []
+        rows = self.col.db.all(
+            f"select distinct n.mid, c.did from cards c join notes n on n.id=c.nid "
+            f"where c.id in {ids2str(matching_cards)}"
+        )
+        group_decks: dict[int, set[int]] = {}
+        for notetype_id, deck_id in rows:
+            group_decks.setdefault(notetype_id, set()).add(deck_id)
         names = {entry.id: entry.name for entry in self.col.models.all_names_and_ids()}
         ordered_ids: list[ItemId] = []
         for notetype_id in sorted(
-            groups, key=lambda ntid: (names.get(ntid, "").casefold(), ntid)
+            group_decks, key=lambda ntid: (names.get(ntid, "").casefold(), ntid)
         ):
-            locale = self.col.get_aux_notetype_config(
+            notetype_locale = self.col.get_aux_notetype_config(
                 NotetypeId(notetype_id), "sortFieldLocale", ""
             )
-            if not isinstance(locale, str):
-                locale = ""
-            if not locale:
-                locale = manual_locale
+            if not isinstance(notetype_locale, str):
+                notetype_locale = ""
+            manual_locales = []
+            for did in group_decks[notetype_id]:
+                deck_options = self.col.get_config(f"_deck_{did}_sortField", {})
+                if (
+                    isinstance(deck_options, dict)
+                    and deck_options.get("mode") == "manual"
+                    and isinstance(deck_options.get("locale"), str)
+                    and deck_options["locale"]
+                ):
+                    manual_locales.append(deck_options["locale"])
+            locale = browser_group_sort_locale(notetype_locale, manual_locales)
             ordered_ids.extend(
                 self._find_items_with_locale(
                     search,

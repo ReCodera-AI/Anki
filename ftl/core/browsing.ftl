@@ -116,6 +116,8 @@ browsing-sidebar = Sidebar
 browsing-sidebar-filter = Sidebar filter
 # The field that is used for sorting (sort is an adjective here, not a verb)
 browsing-sort-field = Sort Field
+browsing-sort-field-group-by-notetype = Group by Note Type for multi-Deck searches
+browsing-sort-field-group-by-notetype-tooltip = When enabled, global searches group results by Note Type. A Deck-scoped Deck Options setting takes precedence.
 browsing-sorting-on-this-column-is-not = Sorting on this column is not supported. Please choose another.
 browsing-start-position = Start position:
 browsing-step = Step:
