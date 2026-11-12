@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+import anki.lang
 from anki.models import NotetypeId
 from aqt.browser.table.state import (
     CardState,
@@ -93,7 +96,7 @@ def test_browser_global_search_groups_across_decks_and_resolves_locales():
     col.close()
 
 
-def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
+def test_browser_mode_groups_by_notetype_and_reverses_complete_result(monkeypatch):
     col = getEmptyCol()
     deck_id = col.decks.add_normal_deck_with_name("Sort Field Test").id
     col.decks.select(deck_id)
@@ -112,9 +115,10 @@ def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
     zulu["name"] = "Zulu"
     col.models.update_dict(zulu)
 
+    # Create groups in reverse display and ID order to verify group sorting is
+    # independent of the order in which the matching query returns them.
     for notetype, values, locale in (
-        (alpha, ["z", "ä"], "en"),
-        (beta, ["ت", "ا", "ب"], "ar"),
+        (zulu, ["я", "ё", "ж", "е", "а"], "ru"),
         (
             omega,
             [
@@ -123,7 +127,8 @@ def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
             ],
             "",
         ),
-        (zulu, ["я", "ё", "ж", "е", "а"], "ru"),
+        (beta, ["ت", "ا", "ب"], "ar"),
+        (alpha, ["z", "ä", "same", "same"], "en"),
     ):
         if locale:
             col.set_aux_notetype_config(
@@ -142,6 +147,8 @@ def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
     values = [col.get_note(nid)["Front"] for nid in ids]
     expected = [
         "ä",
+        "same",
+        "same",
         "z",
         "ا",
         "ب",
@@ -158,7 +165,14 @@ def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
         "я",
     ]
     assert values == expected
+    same_note_ids = [nid for nid in ids if col.get_note(nid)["Front"] == "same"]
+    assert same_note_ids == sorted(same_note_ids)
     assert state._find_browser_sorted_items("", order, False) is None
+    automatic_global = state.find_items("", order, False)
+    expected_automatic_global = state._find_items_with_locale(
+        "", order, False, anki.lang.current_lang, ""
+    )
+    assert list(automatic_global) == list(expected_automatic_global)
     col.set_config("_browser_sortFieldMode", "browser")
     global_ids = state.find_items("", order, False)
     assert [col.get_note(nid)["Front"] for nid in global_ids] == expected
@@ -173,8 +187,44 @@ def test_browser_mode_groups_by_notetype_and_reverses_complete_result():
     card_state = CardState(col)
     card_ids = card_state.find_items(search, order, False)
     assert [col.get_card(cid).note()["Front"] for cid in card_ids] == expected
+    same_card_ids = [
+        cid for cid in card_ids if col.get_card(cid).note()["Front"] == "same"
+    ]
+    assert same_card_ids == sorted(same_card_ids)
     reverse_card_ids = card_state.find_items(search, order, True)
     assert [col.get_card(cid).note()["Front"] for cid in reverse_card_ids] == list(
         reversed(expected)
     )
+
+    # A renamed type name changes group order. Identical displayed names use
+    # Note Type ID as a deterministic tie-break even when query order differs.
+    renamed_names = {
+        alpha["id"]: "Zed",
+        beta["id"]: "Alpha",
+        omega["id"]: "Shared",
+        zulu["id"]: "Shared",
+    }
+    renamed_entries = [
+        SimpleNamespace(id=notetype_id, name=name)
+        for notetype_id, name in renamed_names.items()
+    ]
+    monkeypatch.setattr(
+        type(col.models), "all_names_and_ids", lambda _models: renamed_entries
+    )
+    renamed_ids = state.find_items(search, order, False)
+    expected_renamed_ids = [
+        *state._find_items_with_locale(
+            search, order, False, anki.lang.current_lang, "ar", beta["id"]
+        ),
+        *state._find_items_with_locale(
+            search, order, False, anki.lang.current_lang, "", omega["id"]
+        ),
+        *state._find_items_with_locale(
+            search, order, False, anki.lang.current_lang, "ru", zulu["id"]
+        ),
+        *state._find_items_with_locale(
+            search, order, False, anki.lang.current_lang, "en", alpha["id"]
+        ),
+    ]
+    assert list(renamed_ids) == list(expected_renamed_ids)
     col.close()
