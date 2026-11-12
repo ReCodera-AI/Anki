@@ -21,14 +21,15 @@ from aqt.browser.table import Column, ItemId, ItemList
 def browser_group_sort_locale(
     notetype_locale: str, manual_locales: Sequence[str]
 ) -> str:
-    """Prefer a Note Type locale, then a single unambiguous Deck locale."""
+    """Prefer a Note Type locale, then a shared Manual locale for every Deck."""
     if notetype_locale:
         return notetype_locale
+    if not manual_locales or any(not locale for locale in manual_locales):
+        return ""
     locales: dict[str, str] = {}
     for locale in manual_locales:
-        if locale:
-            normalized = locale.replace("_", "-")
-            locales.setdefault(normalized.casefold(), normalized)
+        normalized = locale.replace("_", "-")
+        locales.setdefault(normalized.casefold(), normalized)
     return next(iter(locales.values())) if len(locales) == 1 else ""
 
 
@@ -170,6 +171,8 @@ class ItemState(ABC):
                     and deck_options["locale"]
                 ):
                     manual_locales.append(deck_options["locale"])
+                else:
+                    manual_locales.append("")
             locale = browser_group_sort_locale(notetype_locale, manual_locales)
             ordered_ids.extend(
                 self._find_items_with_locale(

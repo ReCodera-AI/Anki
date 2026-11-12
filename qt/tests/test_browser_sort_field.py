@@ -11,6 +11,7 @@ def test_browser_group_locale_uses_only_unambiguous_manual_setting():
     assert browser_group_sort_locale("fr", ["en", "sv"]) == "fr"
     assert browser_group_sort_locale("", ["sv", "SV"]) == "sv"
     assert browser_group_sort_locale("", ["en", "sv"]) == ""
+    assert browser_group_sort_locale("", ["en", ""]) == ""
     assert browser_group_sort_locale("", []) == ""
 
 
@@ -79,7 +80,16 @@ def test_browser_global_search_groups_across_decks_and_resolves_locales():
         search, sort_field, False, "en", "", notetype_id
     )
     assert list(detected) == list(expected_detected)
-    assert list(state.find_items(search, sort_field, True)) == list(reversed(detected))
+
+    # A Manual locale from only one contributing Deck is not a group-wide policy.
+    col.set_config(
+        f"_deck_{second_deck}_sortField", {"mode": "automatic", "locale": "en"}
+    )
+    partly_manual = state.find_items(search, sort_field, False)
+    assert list(partly_manual) == list(expected_detected)
+    assert list(state.find_items(search, sort_field, True)) == list(
+        reversed(partly_manual)
+    )
     col.close()
 
 
