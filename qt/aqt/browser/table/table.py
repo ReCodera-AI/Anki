@@ -473,22 +473,14 @@ class Table:
                 lambda checked, key=key: self._on_column_toggled(checked, key),
             )
         section = self._horizontal_header().logicalIndexAt(pos.x())
-        if (
-            section >= 0
-            and self._model.column_at_section(section).key == "noteFld"
-        ):
+        if section >= 0 and self._model.column_at_section(section).key == "noteFld":
             m.addSeparator()
-            group_by_notetype = m.addAction(
-                tr.browsingSortFieldGroupByNotetype()
-            )
+            group_by_notetype = m.addAction(tr.browsingSortFieldGroupByNotetype())
             group_by_notetype.setCheckable(True)
             group_by_notetype.setChecked(
-                self.col.get_config(ItemState.BROWSER_SORT_FIELD_MODE_KEY)
-                == "browser"
+                self.col.get_config(ItemState.BROWSER_SORT_FIELD_MODE_KEY) == "browser"
             )
-            group_by_notetype.setToolTip(
-                tr.browsingSortFieldGroupByNotetypeTooltip()
-            )
+            group_by_notetype.setToolTip(tr.browsingSortFieldGroupByNotetypeTooltip())
             qconnect(
                 group_by_notetype.toggled,
                 self._on_browser_sort_field_group_toggled,

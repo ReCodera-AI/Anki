@@ -116,8 +116,7 @@ class ItemState(ABC):
             if (
                 not isinstance(order, Column)
                 or order.key != "noteFld"
-                or self.col.get_config(self.BROWSER_SORT_FIELD_MODE_KEY)
-                != "browser"
+                or self.col.get_config(self.BROWSER_SORT_FIELD_MODE_KEY) != "browser"
             ):
                 return None
             mode, manual_locale = "browser", ""
