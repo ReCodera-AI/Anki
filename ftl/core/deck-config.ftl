@@ -64,7 +64,7 @@ deck-config-sort-field-notetype = Note Type
 deck-config-sort-field-notetype-language-tag = Note Type Language Tag
 deck-config-sort-field-notetype-placeholder = Leave blank for automatic detection
 deck-config-sort-field-choose-notetype = Choose a Note Type
-deck-config-sort-field-browser-hint = Results are grouped by Note Type name. Each group uses its Note Type locale, then a Manual Deck locale when all contributing Decks agree, otherwise automatic detection. Note Type settings apply wherever that type is used.
+deck-config-sort-field-browser-hint = Results are grouped by Note Type name. For reliable sorting, each Note Type's Sort Field should use one language. Each group uses its Note Type locale, then a Manual Deck locale when all contributing Decks agree, otherwise automatic detection. Note Type settings apply wherever that type is used.
 deck-config-sort-field-invalid-locale = Enter a valid BCP 47 language tag before saving.
 
 ## Daily limit tabs: please try to keep these as short as the English version,
