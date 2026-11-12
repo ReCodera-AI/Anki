@@ -51,6 +51,22 @@ deck-config-apply-all-parent-limits-tooltip =
     subdecks, while enforcing a total limit on cards for the deck tree.
 deck-config-affects-entire-collection = Affects the entire collection.
 
+## Sort Field locale preferences
+
+deck-config-sort-field-language = Sort Field Language
+deck-config-sort-field-mode = Sorting Mode
+deck-config-sort-field-automatic = Automatic
+deck-config-sort-field-manual = Manual
+deck-config-sort-field-browser = Browser
+deck-config-sort-field-language-tag = Language Tag
+deck-config-sort-field-manual-hint = Enter a BCP 47 language tag. Manual sorting uses this locale without automatic detection.
+deck-config-sort-field-notetype = Note Type
+deck-config-sort-field-notetype-language-tag = Note Type Language Tag
+deck-config-sort-field-notetype-placeholder = Leave blank for automatic detection
+deck-config-sort-field-choose-notetype = Choose a Note Type
+deck-config-sort-field-browser-hint = Results are grouped by Note Type name. Each group uses its saved locale or automatic detection. Note Type settings apply wherever that type is used.
+deck-config-sort-field-invalid-locale = Enter a valid BCP 47 language tag before saving.
+
 ## Daily limit tabs: please try to keep these as short as the English version,
 ## as longer text will not fit on small screens.
 

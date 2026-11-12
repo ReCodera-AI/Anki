@@ -10,6 +10,8 @@ import type {
 } from "@generated/anki/deck_config_pb";
 import { DeckConfig, DeckConfig_Config, DeckConfigsForUpdate_CurrentDeck_Limits } from "@generated/anki/deck_config_pb";
 import { updateDeckConfigs } from "@generated/backend";
+import * as tr from "@generated/ftl";
+import { getColConfig, setColConfig } from "@tslib/profile";
 import { localeCompare } from "@tslib/i18n";
 import { promiseWithResolver } from "@tslib/promise";
 import { cloneDeep, isEqual, isEqualWith } from "lodash-es";
@@ -24,6 +26,13 @@ export type DeckOptionsId = bigint;
 export interface ConfigWithCount {
     config: DeckConfig;
     useCount: number;
+}
+
+export type SortFieldMode = "automatic" | "manual" | "browser";
+
+export interface SortFieldOptions {
+    mode: SortFieldMode;
+    locale: string;
 }
 
 /** Info for showing the top selector */
@@ -52,6 +61,9 @@ type AllConfigs =
 export class DeckOptionsState {
     readonly currentConfig: Writable<DeckConfig_Config>;
     readonly currentAuxData: Writable<Record<string, unknown>>;
+    readonly sortFieldMode: Writable<SortFieldMode>;
+    readonly sortFieldLocale: Writable<string>;
+    readonly notetypeSortLocales: Writable<Record<string, string>>;
     readonly configList: Readable<ConfigListEntry[]>;
     readonly cardStateCustomizer: Writable<string>;
     readonly currentDeck: DeckConfigsForUpdate_CurrentDeck;
@@ -71,6 +83,8 @@ export class DeckOptionsState {
     readonly originalConfigsResolve: (value: AllConfigs) => void;
 
     private targetDeckId: DeckOptionsId;
+    private originalSortFieldOptions: SortFieldOptions;
+    private originalNotetypeSortLocales: Record<string, string> = {};
     private configs: ConfigWithCount[];
     private selectedIdx: number;
     private configListSetter!: (val: ConfigListEntry[]) => void;
@@ -83,8 +97,19 @@ export class DeckOptionsState {
     // needed for proper change detection
     private loadedPresets: Set<DeckConfig["id"]> = new Set();
 
-    constructor(targetDeckId: DeckOptionsId, data: DeckConfigsForUpdate) {
+    constructor(
+        targetDeckId: DeckOptionsId,
+        data: DeckConfigsForUpdate,
+        sortFieldOptions: SortFieldOptions = {
+            mode: "automatic",
+            locale: "",
+        },
+    ) {
         this.targetDeckId = targetDeckId;
+        this.originalSortFieldOptions = { ...sortFieldOptions };
+        this.sortFieldMode = writable(sortFieldOptions.mode);
+        this.sortFieldLocale = writable(sortFieldOptions.locale);
+        this.notetypeSortLocales = writable({});
         this.currentDeck = data.currentDeck!;
         this.defaults = data.defaults!.config!;
         this.configs = data.allConfig.map((config) => {
@@ -280,9 +305,44 @@ export class DeckOptionsState {
     }
 
     async save(mode: UpdateDeckConfigsMode): Promise<void> {
-        await updateDeckConfigs(
-            this.dataForSaving(mode),
-        );
+        const sortMode = get(this.sortFieldMode);
+        const sortLocale = get(this.sortFieldLocale).trim();
+        const notetypeLocales = get(this.notetypeSortLocales);
+        if (
+            (sortMode === "manual" && !isValidLocale(sortLocale))
+            || Object.values(notetypeLocales).some(
+                (locale) => locale && !isValidLocale(locale),
+            )
+        ) {
+            window.alert(tr.deckConfigSortFieldInvalidLocale());
+            return;
+        }
+        const current: SortFieldOptions = {
+            mode: sortMode,
+            locale: sortLocale.replace(/_/g, "-"),
+        };
+        if (!isEqual(current, this.originalSortFieldOptions)) {
+            await setColConfig(`_deck_${this.targetDeckId}_sortField`, current);
+            this.originalSortFieldOptions = current;
+        }
+        for (const [id, locale] of Object.entries(notetypeLocales)) {
+            const normalized = locale.trim().replace(/_/g, "-");
+            if (this.originalNotetypeSortLocales[id] !== normalized) {
+                await setColConfig(`_nt_${id}_sortFieldLocale`, normalized);
+                this.originalNotetypeSortLocales[id] = normalized;
+            }
+        }
+        await updateDeckConfigs(this.dataForSaving(mode));
+    }
+
+    setNotetypeSortLocale(id: string, locale: string, initial = false): void {
+        if (initial && !(id in this.originalNotetypeSortLocales)) {
+            this.originalNotetypeSortLocales[id] = locale;
+        }
+        this.notetypeSortLocales.update((values) => ({
+            ...values,
+            [id]: locale,
+        }));
     }
 
     private onCurrentConfigChanged(config: DeckConfig_Config): void {
@@ -373,20 +433,42 @@ export class DeckOptionsState {
     async isModified(): Promise<boolean> {
         const original = await this.originalConfigsPromise;
         const current = this.getAllConfigs();
-        return !isEqualWith(original, current, (lhs, rhs) => {
-            if (typeof lhs === "number" && typeof rhs === "number") {
-                // rslib hands us 32-bit floats (f32), while ts uses 64-bit floats
-                // SpinBox and ParamsInput both round their values as f64 on blur
-                // while the original config's corresponding value remains an f32
-                // so we convert both to f32 before checking for equality
-                return Math.fround(lhs) === Math.fround(rhs);
-            }
-            // undefined means fallback to isEqual
-        });
+        const sortFieldChanged = !isEqual(
+            {
+                mode: get(this.sortFieldMode),
+                locale: get(this.sortFieldLocale).trim(),
+            },
+            this.originalSortFieldOptions,
+        );
+        const notetypeSortLocalesChanged = Object.entries(
+            get(this.notetypeSortLocales),
+        ).some(([id, locale]) => this.originalNotetypeSortLocales[id] !== locale);
+        return (
+            sortFieldChanged
+            || notetypeSortLocalesChanged
+            || !isEqualWith(original, current, (lhs, rhs) => {
+                if (typeof lhs === "number" && typeof rhs === "number") {
+                    // rslib hands us 32-bit floats (f32), while ts uses 64-bit floats
+                    // SpinBox and ParamsInput both round their values as f64 on blur
+                    // while the original config's corresponding value remains an f32
+                    // so we convert both to f32 before checking for equality
+                    return Math.fround(lhs) === Math.fround(rhs);
+                }
+                // undefined means fallback to isEqual
+            })
+        );
     }
 
     resolveOriginalConfigs(): void {
         this.originalConfigsResolve(this.getAllConfigs());
+    }
+}
+
+function isValidLocale(locale: string): boolean {
+    try {
+        return Intl.getCanonicalLocales(locale.replace(/_/g, "-")).length === 1;
+    } catch {
+        return false;
     }
 }
 
