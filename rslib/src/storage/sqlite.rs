@@ -103,6 +103,27 @@ fn open_or_create_collection_db(path: &Path) -> Result<Connection> {
 }
 
 impl SqliteStorage {
+    pub(crate) fn register_manual_sort_collation(&self, locale: &str) -> Result<()> {
+        let locale =
+            locale
+                .replace('_', "-")
+                .parse::<Locale>()
+                .map_err(|err| AnkiError::ProtoError {
+                    info: format!("invalid sort locale: {err}"),
+                })?;
+        let collator =
+            Collator::try_new(&locale.into(), sort_collator_options()).map_err(|err| {
+                AnkiError::ProtoError {
+                    info: format!("unsupported sort locale: {err}"),
+                }
+            })?;
+        self.db
+            .create_collation("anki_locale", move |left, right| {
+                collator.compare(left, right)
+            })?;
+        Ok(())
+    }
+
     pub(crate) fn register_sort_collation(&self, locale: &str) -> Result<()> {
         let locale = locale
             .replace('_', "-")

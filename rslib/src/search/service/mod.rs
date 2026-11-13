@@ -35,6 +35,8 @@ impl crate::services::SearchService for Collection {
         let order = SortMode::with_locale(
             input.order.unwrap_or_default().value.into(),
             input.sort_locale,
+            input.manual_sort_locale,
+            (input.sort_notetype_id > 0).then_some(input.sort_notetype_id),
         );
         let cids = self.search_cards(&input.search, order)?;
         Ok(anki_proto::search::SearchResponse {
@@ -49,6 +51,8 @@ impl crate::services::SearchService for Collection {
         let order = SortMode::with_locale(
             input.order.unwrap_or_default().value.into(),
             input.sort_locale,
+            input.manual_sort_locale,
+            (input.sort_notetype_id > 0).then_some(input.sort_notetype_id),
         );
         let nids = self.search_notes(&input.search, order)?;
         Ok(anki_proto::search::SearchResponse {
@@ -212,6 +216,8 @@ mod tests {
             search: "".to_string(),
             order: None,
             sort_locale: String::new(),
+            manual_sort_locale: String::new(),
+            sort_notetype_id: 0,
         };
         let result = SearchService::search_cards(&mut col, input).unwrap();
         assert!(!result.ids.is_empty(), "expected at least one card id");
@@ -225,6 +231,8 @@ mod tests {
             search: "".to_string(),
             order: None,
             sort_locale: String::new(),
+            manual_sort_locale: String::new(),
+            sort_notetype_id: 0,
         };
         let result = SearchService::search_notes(&mut col, input).unwrap();
         assert!(!result.ids.is_empty(), "expected at least one note id");
@@ -342,6 +350,8 @@ mod tests {
                 search: "".to_string(),
                 order: None,
                 sort_locale: String::new(),
+                manual_sort_locale: String::new(),
+                sort_notetype_id: 0,
             },
         )
         .unwrap();
@@ -369,6 +379,8 @@ mod tests {
                 search: "note:Basic".to_string(),
                 order: None,
                 sort_locale: String::new(),
+                manual_sort_locale: String::new(),
+                sort_notetype_id: 0,
             },
         )
         .unwrap();
@@ -403,6 +415,8 @@ mod tests {
                 search: "deck:TargetDeck".to_string(),
                 order: None,
                 sort_locale: String::new(),
+                manual_sort_locale: String::new(),
+                sort_notetype_id: 0,
             },
         )
         .unwrap();
@@ -438,6 +452,8 @@ mod tests {
                 search: "tag:target".to_string(),
                 order: None,
                 sort_locale: String::new(),
+                manual_sort_locale: String::new(),
+                sort_notetype_id: 0,
             },
         )
         .unwrap();

@@ -2,6 +2,7 @@
 # License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod, abstractproperty
 from collections.abc import Sequence
 from typing import cast
@@ -11,9 +12,25 @@ from anki.browser import BrowserConfig
 from anki.cards import Card, CardId
 from anki.collection import Collection
 from anki.errors import NotFoundError
+from anki.models import NotetypeId
 from anki.notes import Note, NoteId
 from anki.utils import ids2str
 from aqt.browser.table import Column, ItemId, ItemList
+
+
+def browser_group_sort_locale(
+    notetype_locale: str, manual_locales: Sequence[str]
+) -> str:
+    """Prefer a Note Type locale, then a shared Manual locale for every Deck."""
+    if notetype_locale:
+        return notetype_locale
+    if not manual_locales or any(not locale for locale in manual_locales):
+        return ""
+    locales: dict[str, str] = {}
+    for locale in manual_locales:
+        normalized = locale.replace("_", "-")
+        locales.setdefault(normalized.casefold(), normalized)
+    return next(iter(locales.values())) if len(locales) == 1 else ""
 
 
 class ItemState(ABC):
@@ -21,6 +38,7 @@ class ItemState(ABC):
     SORT_COLUMN_KEY: str
     SORT_BACKWARDS_KEY: str
     _active_columns: list[str]
+    BROWSER_SORT_FIELD_MODE_KEY = "_browser_sortFieldMode"
 
     def __init__(self, col: Collection) -> None:
         self.col = col
@@ -30,6 +48,145 @@ class ItemState(ABC):
     def is_notes_mode(self) -> bool:
         """Return True if the state is a NoteState."""
         return isinstance(self, NoteState)
+
+    def _sort_field_settings(self, search: str, order: bool | str | Column):
+        if not isinstance(order, Column) or order.key != "noteFld":
+            return None
+        deck_match = re.match(
+            r'^\s*deck:(?:"((?:\\.|[^"])*)"|([^\s]+))(?:\s|$)', search
+        )
+        if not deck_match or re.search(
+            r"\bor\b|(?:^|\s)-?deck:", search[deck_match.end() :]
+        ):
+            return None
+        deck_name = deck_match.group(1)
+        if deck_name is not None:
+            deck_name = deck_name.replace('\\"', '"').replace("\\\\", "\\")
+        else:
+            deck_name = deck_match.group(2)
+        deck_id = (
+            self.col.decks.get_current_id()
+            if deck_name == "current"
+            else self.col.decks.id_for_name(deck_name)
+        )
+        if deck_id is None:
+            return None
+        options = self.col.get_config(f"_deck_{deck_id}_sortField", {})
+        if not isinstance(options, dict):
+            return None
+        mode = options.get("mode", "automatic")
+        locale = options.get("locale", "")
+        if mode not in ("automatic", "manual", "browser") or not isinstance(
+            locale, str
+        ):
+            return None
+        return mode, locale
+
+    def _find_items_with_locale(
+        self,
+        search: str,
+        order: bool | str | Column,
+        reverse: bool,
+        fallback_locale: str,
+        manual_locale: str,
+        notetype_id: int = 0,
+    ) -> Sequence[ItemId]:
+        if self.is_notes_mode():
+            return self.col.find_notes(
+                search,
+                order,
+                reverse,
+                fallback_locale,
+                manual_sort_locale=manual_locale,
+                sort_notetype_id=notetype_id,
+            )
+        return self.col.find_cards(
+            search,
+            order,
+            reverse,
+            fallback_locale,
+            manual_sort_locale=manual_locale,
+            sort_notetype_id=notetype_id,
+        )
+
+    def _find_browser_sorted_items(
+        self, search: str, order: bool | str | Column, reverse: bool
+    ) -> Sequence[ItemId] | None:
+        settings = self._sort_field_settings(search, order)
+        if settings is None:
+            if (
+                not isinstance(order, Column)
+                or order.key != "noteFld"
+                or self.col.get_config(self.BROWSER_SORT_FIELD_MODE_KEY) != "browser"
+            ):
+                return None
+            mode, manual_locale = "browser", ""
+        else:
+            mode, manual_locale = settings
+        fallback_locale = anki.lang.current_lang
+        if mode == "manual" and manual_locale:
+            return self._find_items_with_locale(
+                search, order, reverse, fallback_locale, manual_locale
+            )
+        if mode != "browser":
+            return None
+
+        unordered = self._find_items_with_locale(
+            search, False, False, fallback_locale, ""
+        )
+        if not unordered:
+            return []
+        assert self.col.db is not None
+        matching_cards = (
+            self.col.find_cards(search, False, False, fallback_locale)
+            if self.is_notes_mode()
+            else unordered
+        )
+        if not matching_cards:
+            return []
+        rows = self.col.db.all(
+            f"select distinct n.mid, c.did from cards c join notes n on n.id=c.nid "
+            f"where c.id in {ids2str(matching_cards)}"
+        )
+        group_decks: dict[int, set[int]] = {}
+        for notetype_id, deck_id in rows:
+            group_decks.setdefault(notetype_id, set()).add(deck_id)
+        names = {entry.id: entry.name for entry in self.col.models.all_names_and_ids()}
+        ordered_ids: list[ItemId] = []
+        for notetype_id in sorted(
+            group_decks, key=lambda ntid: (names.get(ntid, "").casefold(), ntid)
+        ):
+            notetype_locale = self.col.get_aux_notetype_config(
+                NotetypeId(notetype_id), "sortFieldLocale", ""
+            )
+            if not isinstance(notetype_locale, str):
+                notetype_locale = ""
+            manual_locales = []
+            for did in group_decks[notetype_id]:
+                deck_options = self.col.get_config(f"_deck_{did}_sortField", {})
+                if (
+                    isinstance(deck_options, dict)
+                    and deck_options.get("mode") == "manual"
+                    and isinstance(deck_options.get("locale"), str)
+                    and deck_options["locale"]
+                ):
+                    manual_locales.append(deck_options["locale"])
+                else:
+                    manual_locales.append("")
+            locale = browser_group_sort_locale(notetype_locale, manual_locales)
+            ordered_ids.extend(
+                self._find_items_with_locale(
+                    search,
+                    order,
+                    False,
+                    fallback_locale,
+                    locale,
+                    notetype_id,
+                )
+            )
+        if reverse:
+            ordered_ids.reverse()
+        return ordered_ids
 
     # Stateless Helpers
 
@@ -157,7 +314,12 @@ class CardState(ItemState):
     def find_items(
         self, search: str, order: bool | str | Column, reverse: bool
     ) -> Sequence[ItemId]:
-        return self.col.find_cards(search, order, reverse, anki.lang.current_lang)
+        sorted_items = self._find_browser_sorted_items(search, order, reverse)
+        if sorted_items is not None:
+            return sorted_items
+        return self._find_items_with_locale(
+            search, order, reverse, anki.lang.current_lang, ""
+        )
 
     def get_item_from_card_id(self, card: CardId) -> ItemId:
         return card
@@ -206,7 +368,12 @@ class NoteState(ItemState):
     def find_items(
         self, search: str, order: bool | str | Column, reverse: bool
     ) -> Sequence[ItemId]:
-        return self.col.find_notes(search, order, reverse, anki.lang.current_lang)
+        sorted_items = self._find_browser_sorted_items(search, order, reverse)
+        if sorted_items is not None:
+            return sorted_items
+        return self._find_items_with_locale(
+            search, order, reverse, anki.lang.current_lang, ""
+        )
 
     def get_item_from_card_id(self, card: CardId) -> ItemId:
         return self.col.get_card(card).note().id

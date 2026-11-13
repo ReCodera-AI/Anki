@@ -647,6 +647,8 @@ class Collection(DeprecatedNamesMixin):
         order: bool | str | BrowserColumns.Column = False,
         reverse: bool = False,
         sort_locale: str = "",
+        manual_sort_locale: str = "",
+        sort_notetype_id: int = 0,
     ) -> Sequence[CardId]:
         """Return card ids matching the provided search.
 
@@ -673,7 +675,11 @@ class Collection(DeprecatedNamesMixin):
         return cast(
             Sequence[CardId],
             self._backend.search_cards(
-                search=query, order=mode, sort_locale=sort_locale.replace("_", "-")
+                search=query,
+                order=mode,
+                sort_locale=sort_locale.replace("_", "-"),
+                manual_sort_locale=manual_sort_locale.replace("_", "-"),
+                sort_notetype_id=sort_notetype_id,
             ),
         )
 
@@ -683,6 +689,8 @@ class Collection(DeprecatedNamesMixin):
         order: bool | str | BrowserColumns.Column = False,
         reverse: bool = False,
         sort_locale: str = "",
+        manual_sort_locale: str = "",
+        sort_notetype_id: int = 0,
     ) -> Sequence[NoteId]:
         """Return note ids matching the provided search.
 
@@ -693,7 +701,11 @@ class Collection(DeprecatedNamesMixin):
         return cast(
             Sequence[NoteId],
             self._backend.search_notes(
-                search=query, order=mode, sort_locale=sort_locale.replace("_", "-")
+                search=query,
+                order=mode,
+                sort_locale=sort_locale.replace("_", "-"),
+                manual_sort_locale=manual_sort_locale.replace("_", "-"),
+                sort_notetype_id=sort_notetype_id,
             ),
         )
 

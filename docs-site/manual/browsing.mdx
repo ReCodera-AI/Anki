@@ -154,6 +154,17 @@ All columns are available for both [Cards and Notes mode](./#table-modes)
 but sometimes with slightly different names and data. The following table lists
 the behaviours for both modes.
 
+Sort Field ordering uses automatic language detection by default. In Deck Options,
+you can choose **Automatic**, **Manual**, or **Browser** for searches scoped to one
+deck. Manual uses the selected language tag for the deck. Browser groups results by
+Note Type name and sorts each group using that Note Type's saved language, then a
+Manual language if all contributing decks agree, or automatic detection otherwise.
+For reliable Browser sorting, each Note Type's Sort Field should use one language.
+Note Type language preferences apply wherever that Note Type is used. Searches
+across multiple decks use automatic ordering by default. To group a cross-deck
+search, right-click the Sort Field header and enable **Group by Note Type for
+multi-Deck searches**. A Deck-scoped Deck Options setting takes precedence.
+
 {/* prettier-ignore */}
 | Column          | Cards mode                                                                                                                                                                                                                             | Notes mode                                                                                                                                                                                                     |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

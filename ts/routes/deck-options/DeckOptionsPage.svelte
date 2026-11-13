@@ -24,8 +24,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import LapseOptions from "./LapseOptions.svelte";
     import type { DeckOptionsState } from "./lib";
     import NewOptions from "./NewOptions.svelte";
-    import TimerOptions from "./TimerOptions.svelte";
+    import SortFieldOptions from "./SortFieldOptions.svelte";
     import EasyDays from "./EasyDays.svelte";
+    import TimerOptions from "./TimerOptions.svelte";
 
     export let state: DeckOptionsState;
     const addons = state.addonComponents;
@@ -101,6 +102,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
             <Row class="row-columns">
                 <DisplayOrder {state} api={displayOrder} />
+            </Row>
+
+            <Row class="row-columns">
+                <SortFieldOptions {state} />
             </Row>
 
             <Row class="row-columns">

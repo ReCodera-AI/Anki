@@ -115,6 +115,10 @@ message SearchRequest {
   SortOrder order = 2;
   // Locale used for locale-aware Sort Field ordering in the browser.
   string sort_locale = 3;
+  // Explicit locale that takes precedence over automatic detection.
+  string manual_sort_locale = 4;
+  // Restrict locale detection and ordering to one Note Type group.
+  int64 sort_notetype_id = 5;
 }
 
 message SearchResponse {

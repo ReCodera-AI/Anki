@@ -10,7 +10,10 @@ import {
     setProfileConfigJson,
 } from "@generated/backend";
 
-async function getSettingJson(key: string, backendGetter: (key: string) => Promise<any>): Promise<any> {
+async function getSettingJson(
+    key: string,
+    backendGetter: (key: string) => Promise<any>,
+): Promise<any> {
     const decoder = new TextDecoder();
     const json = decoder.decode((await backendGetter(key)).json);
     return JSON.parse(json);
@@ -31,7 +34,11 @@ export async function getProfileConfig(key: string): Promise<any> {
 }
 
 export async function setProfileConfig(key: string, value: any): Promise<void> {
-    return await setSettingJson(key, value, async (k, v) => await setProfileConfigJson({ key: k, valueJson: v }));
+    return await setSettingJson(
+        key,
+        value,
+        async (k, v) => await setProfileConfigJson({ key: k, valueJson: v }),
+    );
 }
 
 export async function getMeta(key: string): Promise<any> {
@@ -39,11 +46,30 @@ export async function getMeta(key: string): Promise<any> {
 }
 
 export async function setMeta(key: string, value: any): Promise<void> {
-    return await setSettingJson(key, value, async (k, v) => await setMetaJson({ key: k, valueJson: v }));
+    return await setSettingJson(
+        key,
+        value,
+        async (k, v) => await setMetaJson({ key: k, valueJson: v }),
+    );
 }
 
 export async function getColConfig(key: string): Promise<any> {
     return await getSettingJson(key, async (k) => await getConfigJson({ val: k }));
+}
+
+export async function getColConfigOptional(key: string): Promise<any> {
+    try {
+        const decoder = new TextDecoder();
+        const json = decoder.decode(
+            (await getConfigJson({ val: key }, { alertOnError: false })).json,
+        );
+        return JSON.parse(json);
+    } catch (error) {
+        if (error instanceof Error && /No such .*:/.test(error.message)) {
+            return null;
+        }
+        throw error;
+    }
 }
 
 export async function setColConfig(key: string, value: any): Promise<void> {

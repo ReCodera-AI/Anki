@@ -48,13 +48,30 @@ pub enum SortMode {
         column: Column,
         reverse: bool,
         locale: String,
+        detect_locale: bool,
+        notetype_id: Option<i64>,
     },
     Custom(String),
 }
 
 impl SortMode {
-    pub(crate) fn with_locale(mode: Self, locale: String) -> Self {
+    pub(crate) fn with_locale(
+        mode: Self,
+        locale: String,
+        manual_locale: String,
+        notetype_id: Option<i64>,
+    ) -> Self {
         match mode {
+            SortMode::Builtin {
+                column: Column::SortField,
+                reverse,
+            } if !manual_locale.is_empty() => SortMode::LocaleBuiltin {
+                column: Column::SortField,
+                reverse,
+                locale: manual_locale,
+                detect_locale: false,
+                notetype_id,
+            },
             SortMode::Builtin {
                 column: Column::SortField,
                 reverse,
@@ -62,6 +79,8 @@ impl SortMode {
                 column: Column::SortField,
                 reverse,
                 locale,
+                detect_locale: true,
+                notetype_id,
             },
             other => other,
         }
@@ -212,7 +231,15 @@ impl Collection {
         let top_node = search.try_into_search()?;
         let writer = SqlWriter::new(self, item_type);
 
-        let (mut sql, args) = writer.build_query(&top_node, mode.required_table())?;
+        let (mut sql, mut args) = writer.build_query(&top_node, mode.required_table())?;
+        if let SortMode::LocaleBuiltin {
+            notetype_id: Some(notetype_id),
+            ..
+        } = &mode
+        {
+            sql.push_str(" and n.mid = ?");
+            args.push(notetype_id.to_string());
+        }
         let mode = self.resolve_locale_sort_mode(mode, &sql, &args)?;
         self.add_order(&mut sql, item_type, mode)?;
 
@@ -263,13 +290,24 @@ impl Collection {
                 column,
                 reverse,
                 locale,
+                detect_locale,
+                notetype_id,
             } => {
-                let locale = detect_sort_locale(&self.storage.db, query, args).unwrap_or(locale);
-                self.storage.register_sort_collation(&locale)?;
+                let locale = if detect_locale {
+                    let locale =
+                        detect_sort_locale(&self.storage.db, query, args).unwrap_or(locale);
+                    self.storage.register_sort_collation(&locale)?;
+                    locale
+                } else {
+                    self.storage.register_manual_sort_collation(&locale)?;
+                    locale
+                };
                 Ok(SortMode::LocaleBuiltin {
                     column,
                     reverse,
                     locale,
+                    detect_locale: false,
+                    notetype_id,
                 })
             }
             other => Ok(other),

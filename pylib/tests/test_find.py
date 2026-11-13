@@ -6,6 +6,7 @@ import pytest
 
 from anki.browser import BrowserConfig
 from anki.consts import *
+from anki.errors import BackendError
 from tests.shared import getEmptyCol, isNearCutoff
 
 
@@ -362,3 +363,49 @@ def test_find_sort_field_detects_russian_language_and_uses_it():
         "ж",
         "я",
     ]
+
+
+def test_find_sort_field_manual_locale_takes_precedence_over_detection():
+    col = getEmptyCol()
+    for value in ["ä", "z"]:
+        note = col.newNote()
+        note["Front"] = value
+        note["Back"] = "back"
+        col.addNote(note)
+
+    sort_field = col.get_browser_column("noteFld")
+    assert sort_field is not None
+    note_ids = col.find_notes(
+        "", sort_field, sort_locale="en", manual_sort_locale="sv"
+    )
+    assert [col.get_note(nid)["Front"] for nid in note_ids] == ["z", "ä"]
+    card_ids = col.find_cards(
+        "", sort_field, sort_locale="en", manual_sort_locale="sv"
+    )
+    assert [col.get_card(cid).note()["Front"] for cid in card_ids] == ["z", "ä"]
+    with pytest.raises(BackendError, match="invalid sort locale"):
+        col.find_notes("", sort_field, manual_sort_locale="not a locale")
+
+
+def test_find_sort_field_can_scope_locale_detection_to_notetype():
+    col = getEmptyCol()
+    basic = col.models.by_name("Basic")
+    other = col.models.copy(basic)
+    other["name"] = "Other"
+    col.models.update_dict(other)
+    notes = []
+    for notetype, value in ((basic, "basic"), (other, "other")):
+        note = col.new_note(notetype)
+        note["Front"] = value
+        col.add_note(note, col.decks.get_current_id())
+        notes.append(note)
+
+    sort_field = col.get_browser_column("noteFld")
+    assert sort_field is not None
+    result = col.find_notes(
+        "",
+        sort_field,
+        sort_locale="en",
+        sort_notetype_id=other["id"],
+    )
+    assert list(result) == [notes[1].id]

@@ -472,8 +472,26 @@ class Table:
                 a.toggled,
                 lambda checked, key=key: self._on_column_toggled(checked, key),
             )
+        section = self._horizontal_header().logicalIndexAt(pos.x())
+        if section >= 0 and self._model.column_at_section(section).key == "noteFld":
+            m.addSeparator()
+            group_by_notetype = m.addAction(tr.browsingSortFieldGroupByNotetype())
+            group_by_notetype.setCheckable(True)
+            group_by_notetype.setChecked(
+                self.col.get_config(ItemState.BROWSER_SORT_FIELD_MODE_KEY) == "browser"
+            )
+            group_by_notetype.setToolTip(tr.browsingSortFieldGroupByNotetypeTooltip())
+            qconnect(
+                group_by_notetype.toggled,
+                self._on_browser_sort_field_group_toggled,
+            )
         gui_hooks.browser_header_will_show_context_menu(self.browser, m)
         m.exec(gpos)
+
+    def _on_browser_sort_field_group_toggled(self, checked: bool) -> None:
+        mode = "browser" if checked else "automatic"
+        self.col.set_config(ItemState.BROWSER_SORT_FIELD_MODE_KEY, mode)
+        self.browser.search()
 
     def _on_column_moved(self, *_args: Any) -> None:
         self._set_column_sizes()
