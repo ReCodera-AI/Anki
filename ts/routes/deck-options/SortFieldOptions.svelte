@@ -5,11 +5,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <script lang="ts">
     import { getNotetypeNames } from "@generated/backend";
     import * as tr from "@generated/ftl";
-    import { getColConfig } from "@tslib/profile";
+    import { getColConfigOptional } from "@tslib/profile";
     import { get } from "svelte/store";
     import type { DeckOptionsState } from "./lib";
 
     export let state: DeckOptionsState;
+
+    const sortFieldMode = state.sortFieldMode;
+    const sortFieldLocale = state.sortFieldLocale;
 
     let noteTypes: { id: bigint; name: string }[] = [];
     let selectedNotetypeId = "";
@@ -30,10 +33,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }
         const current = get(state.notetypeSortLocales)[id];
         notetypeLocale =
-            current
-            ?? String(
-                await getColConfig(`_nt_${id}_sortFieldLocale`) ?? "",
-            );
+            current ??
+            String((await getColConfigOptional(`_nt_${id}_sortFieldLocale`)) ?? "");
         state.setNotetypeSortLocale(id, notetypeLocale, current === undefined);
     }
 
@@ -48,32 +49,30 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <section aria-labelledby="sort-field-options-title">
     <h3 id="sort-field-options-title">{tr.deckConfigSortFieldLanguage()}</h3>
     <label for="sort-field-mode">{tr.deckConfigSortFieldMode()}</label>
-    <select id="sort-field-mode" bind:value={$state.sortFieldMode}>
+    <select id="sort-field-mode" bind:value={$sortFieldMode}>
         <option value="automatic">{tr.deckConfigSortFieldAutomatic()}</option>
         <option value="manual">{tr.deckConfigSortFieldManual()}</option>
         <option value="browser">{tr.deckConfigSortFieldBrowser()}</option>
     </select>
 
-    {#if $state.sortFieldMode === "manual"}
+    {#if $sortFieldMode === "manual"}
         <label for="sort-field-locale">{tr.deckConfigSortFieldLanguageTag()}</label>
         <input
             id="sort-field-locale"
             type="text"
-            bind:value={$state.sortFieldLocale}
+            bind:value={$sortFieldLocale}
             placeholder="ru"
             autocomplete="off"
             dir="ltr"
         />
         <p>{tr.deckConfigSortFieldManualHint()}</p>
-    {:else if $state.sortFieldMode === "browser"}
+    {:else if $sortFieldMode === "browser"}
         <label for="sort-field-notetype">{tr.deckConfigSortFieldNotetype()}</label>
         <select
             id="sort-field-notetype"
             value={selectedNotetypeId}
             on:change={(event) =>
-                selectNotetype(
-                    (event.currentTarget as HTMLSelectElement).value,
-                )}
+                selectNotetype((event.currentTarget as HTMLSelectElement).value)}
         >
             <option value="">{tr.deckConfigSortFieldChooseNotetype()}</option>
             {#each noteTypes as noteType (noteType.id)}
