@@ -2,7 +2,6 @@
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 import {
-    getAllConfig,
     getConfigJson,
     getMetaJson,
     getProfileConfigJson,
@@ -59,9 +58,18 @@ export async function getColConfig(key: string): Promise<any> {
 }
 
 export async function getColConfigOptional(key: string): Promise<any> {
-    const decoder = new TextDecoder();
-    const configs = JSON.parse(decoder.decode((await getAllConfig({})).json));
-    return Object.prototype.hasOwnProperty.call(configs, key) ? configs[key] : null;
+    try {
+        const decoder = new TextDecoder();
+        const json = decoder.decode(
+            (await getConfigJson({ val: key }, { alertOnError: false })).json,
+        );
+        return JSON.parse(json);
+    } catch (error) {
+        if (error instanceof Error && /No such .*:/.test(error.message)) {
+            return null;
+        }
+        throw error;
+    }
 }
 
 export async function setColConfig(key: string, value: any): Promise<void> {

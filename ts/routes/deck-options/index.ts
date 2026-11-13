@@ -9,7 +9,7 @@ import "$lib/sveltelib/export-runtime";
 import "./deck-options-base.scss";
 
 import { getDeckConfigsForUpdate } from "@generated/backend";
-import { getColConfig } from "@tslib/profile";
+import { getColConfigOptional } from "@tslib/profile";
 import { ModuleName, setupI18n } from "@tslib/i18n";
 import { checkNightMode } from "@tslib/nightmode";
 
@@ -39,7 +39,7 @@ export async function setupDeckOptions(did_: number): Promise<DeckOptionsPage> {
     const did = BigInt(did_);
     const [info, sortFieldOptions] = await Promise.all([
         getDeckConfigsForUpdate({ did }),
-        getColConfig(`_deck_${did}_sortField`),
+        getColConfigOptional(`_deck_${did}_sortField`),
         i18n,
     ]);
 
@@ -49,13 +49,14 @@ export async function setupDeckOptions(did_: number): Promise<DeckOptionsPage> {
     context.set(modalsKey, new Map());
     context.set(touchDeviceKey, "ontouchstart" in document.documentElement);
 
-    const storedSortFieldOptions = sortFieldOptions as
-        | { mode?: string; locale?: string }
-        | null;
+    const storedSortFieldOptions = sortFieldOptions as {
+        mode?: string;
+        locale?: string;
+    } | null;
     const mode = ["automatic", "manual", "browser"].includes(
         storedSortFieldOptions?.mode ?? "",
     )
-        ? storedSortFieldOptions!.mode as "automatic" | "manual" | "browser"
+        ? (storedSortFieldOptions!.mode as "automatic" | "manual" | "browser")
         : "automatic";
     const state = new DeckOptionsState(BigInt(did), info, {
         mode,
